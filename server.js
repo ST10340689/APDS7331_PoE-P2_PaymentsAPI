@@ -1,10 +1,7 @@
 // =========================
-//  SECURE HTTPS BACKEND
+//  SIMPLE HTTP BACKEND
 // =========================
 
-const fs = require("fs");
-const https = require("https");
-const http = require("http");
 const express = require("express");
 const helmet = require("helmet");
 const cors = require("cors");
@@ -14,7 +11,6 @@ const session = require("express-session");
 const cookieParser = require("cookie-parser");
 const hpp = require("hpp");
 const sanitizeHtml = require("sanitize-html");
-const path = require("path");
 require("dotenv").config();
 const connectDB = require("./config/db");
 
@@ -29,11 +25,11 @@ const app = express();
 connectDB();
 
 // =========================
-//  CORS — MUST COME FIRST
+//  CORS
 // =========================
 app.use(
   cors({
-    origin: "https://localhost:3000",
+    origin: "http://localhost:3000",
     methods: ["GET", "POST"],
     credentials: true,
   })
@@ -71,7 +67,9 @@ app.use(
 const store = new ExpressBrute.MemoryStore();
 const bruteforce = new ExpressBrute(store);
 
-// Cookie + Session security
+// =========================
+//  SESSION + COOKIES
+// =========================
 app.use(cookieParser());
 app.use(
   session({
@@ -79,10 +77,10 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: true, // HTTPS ONLY
+      secure: false, // HTTP ONLY
       httpOnly: true,
-      sameSite: "strict",
-      maxAge: 1000 * 60 * 60, // 1 hour
+      sameSite: "lax",
+      maxAge: 1000 * 60 * 60,
     },
   })
 );
@@ -109,25 +107,9 @@ app.use("/api/transactions", require("./routes/transactionRoutes"));
 app.use("/api/account", require("./routes/accountRoutes"));
 
 // =========================
-//  HTTPS SERVER
+//  START HTTP SERVER
 // =========================
-const sslOptions = {
-  key: fs.readFileSync(path.join(__dirname, "localhost-key.pem")),
-  cert: fs.readFileSync(path.join(__dirname, "localhost.pem")),
-};
-
-https.createServer(sslOptions, app).listen(5000, () => {
-  console.log("🔐 HTTPS Server running on https://localhost:5000");
+const PORT = 5000;
+app.listen(PORT, () => {
+  console.log(`🚀 HTTP Server running on http://localhost:${PORT}`);
 });
-
-// =========================
-//  HTTP → HTTPS REDIRECT
-// =========================
-http
-  .createServer((req, res) => {
-    res.writeHead(301, { Location: "https://localhost:5000" + req.url });
-    res.end();
-  })
-  .listen(5001, () => {
-    console.log("➡ Redirecting HTTP (5001) → HTTPS (5000)");
-  });

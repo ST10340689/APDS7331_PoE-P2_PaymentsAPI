@@ -37,32 +37,27 @@ const UserSchema = new mongoose.Schema(
       trim: true,
     },
 
-    // ROLE: admin / staff / customer
     role: {
       type: String,
       enum: ["admin", "staff", "customer"],
       default: "customer",
     },
 
-    // AUTH
     passwordHash: {
       type: String,
       required: true,
     },
 
-    // BANKING
     balance: {
       type: Number,
       default: 0,
     },
     accountCategory: {
-      // Student or Adult
       type: String,
       enum: ["Student", "Adult"],
       default: "Adult",
     },
     accountType: {
-      // Savings or Cheque
       type: String,
       enum: ["Savings", "Cheque"],
       default: "Cheque",
@@ -73,7 +68,6 @@ const UserSchema = new mongoose.Schema(
       default: "Active",
     },
 
-    // AUDIT
     lastLogin: {
       type: Date,
       default: null,
@@ -82,4 +76,5 @@ const UserSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-module.exports = mongoose.model("User", UserSchema);
+// FIX: Prevent OverwriteModelError
+module.exports = mongoose.models.User || mongoose.model("User", UserSchema);

@@ -2,7 +2,7 @@ const User = require("../models/User");
 const Transaction = require("../models/Transaction");
 
 /* ============================================================
-   HELPER: LOAD AUTHENTICATED USER FROM SESSION
+   LOAD USER FROM SESSION
 ============================================================ */
 const loadUser = async (req) => {
   if (!req.session || !req.session.user) {
@@ -12,13 +12,9 @@ const loadUser = async (req) => {
   const { accountNumber } = req.session.user;
 
   const user = await User.findOne({ accountNumber });
-  if (!user) {
-    return { error: "User not found.", status: 404 };
-  }
-
-  if (user.status === "Deactivated") {
+  if (!user) return { error: "User not found.", status: 404 };
+  if (user.status === "Deactivated")
     return { error: "Account is deactivated.", status: 403 };
-  }
 
   return { user };
 };
@@ -26,12 +22,14 @@ const loadUser = async (req) => {
 /* ============================================================
    GET DASHBOARD
 ============================================================ */
-const getDashboard = async (req, res) => {
+exports.getDashboard = async (req, res) => {
   try {
     const { user, error, status } = await loadUser(req);
     if (!user) return res.status(status).json({ error });
 
-    const transactions = await Transaction.find({ accountNumber: user.accountNumber })
+    const transactions = await Transaction.find({
+      accountNumber: user.accountNumber,
+    })
       .sort({ createdAt: -1 })
       .limit(10);
 
@@ -72,34 +70,33 @@ const getDashboard = async (req, res) => {
 /* ============================================================
    CREATE PAYMENT
 ============================================================ */
-const createPayment = async (req, res) => {
+exports.createPayment = async (req, res) => {
   try {
     const { user, error, status } = await loadUser(req);
     if (!user) return res.status(status).json({ error });
 
     const { recipient, amount, currency, description } = req.body;
 
-    if (!recipient || !amount || !currency) {
+    if (!recipient || !amount || !currency)
       return res.status(400).json({ error: "All fields are required." });
-    }
 
-    if (recipient === user.accountNumber) {
-      return res.status(400).json({ error: "You cannot send money to yourself." });
-    }
+    if (recipient === user.accountNumber)
+      return res
+        .status(400)
+        .json({ error: "You cannot send money to yourself." });
 
     const numericAmount = parseFloat(amount);
-    if (isNaN(numericAmount) || numericAmount <= 0) {
+    if (isNaN(numericAmount) || numericAmount <= 0)
       return res.status(400).json({ error: "Invalid amount." });
-    }
 
-    if (user.balance < numericAmount) {
+    if (user.balance < numericAmount)
       return res.status(400).json({ error: "Insufficient funds." });
-    }
 
     user.balance -= numericAmount;
     await user.save();
 
-    const reference = "TX-" + Math.floor(100000000 + Math.random() * 900000000);
+    const reference =
+      "TX-" + Math.floor(100000000 + Math.random() * 900000000);
 
     const tx = await Transaction.create({
       accountNumber: user.accountNumber,
@@ -128,15 +125,14 @@ const createPayment = async (req, res) => {
 /* ============================================================
    DEPOSIT MONEY
 ============================================================ */
-const depositMoney = async (req, res) => {
+exports.depositMoney = async (req, res) => {
   try {
     const { user, error, status } = await loadUser(req);
     if (!user) return res.status(status).json({ error });
 
     const numericAmount = Number(req.body.amount);
-    if (!numericAmount || numericAmount <= 0) {
+    if (!numericAmount || numericAmount <= 0)
       return res.status(400).json({ error: "Invalid deposit amount." });
-    }
 
     user.balance += numericAmount;
     await user.save();
@@ -149,7 +145,8 @@ const depositMoney = async (req, res) => {
       currency: "ZAR",
       recipient: user.fullName,
       description: "Account Deposit",
-      reference: "DEP-" + Math.floor(100000000 + Math.random() * 900000000),
+      reference:
+        "DEP-" + Math.floor(100000000 + Math.random() * 900000000),
       status: "Completed",
     });
 
@@ -167,7 +164,7 @@ const depositMoney = async (req, res) => {
 /* ============================================================
    TRANSACTION HISTORY
 ============================================================ */
-const getTransactionHistory = async (req, res) => {
+exports.getTransactionHistory = async (req, res) => {
   try {
     const { user, error, status } = await loadUser(req);
     if (!user) return res.status(status).json({ error });
@@ -189,8 +186,10 @@ const getTransactionHistory = async (req, res) => {
 
     if (req.query.startDate || req.query.endDate) {
       filter.createdAt = {};
-      if (req.query.startDate) filter.createdAt.$gte = new Date(req.query.startDate);
-      if (req.query.endDate) filter.createdAt.$lte = new Date(req.query.endDate);
+      if (req.query.startDate)
+        filter.createdAt.$gte = new Date(req.query.startDate);
+      if (req.query.endDate)
+        filter.createdAt.$lte = new Date(req.query.endDate);
     }
 
     if (req.query.search) {
@@ -218,17 +217,8 @@ const getTransactionHistory = async (req, res) => {
     });
   } catch (err) {
     console.error("Transaction history error:", err.message);
-    return res.status(500).json({ error: "Failed to load transaction history." });
+    return res
+      .status(500)
+      .json({ error: "Failed to load transaction history." });
   }
 };
-
-/* ============================================================
-   EXPORTS
-============================================================ */
-module.exports = {
-  getDashboard: getDashboard,
-  createPayment: createPayment,
-  depositMoney: depositMoney,
-  getTransactionHistory: getTransactionHistory
-};
-
