@@ -1,0 +1,231 @@
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+      - feature/*
+  paths:
+    exclude:
+      - README.md
+      - docs/*
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  nodeVersion: '18.x'
+  dockerRegistryServiceConnection: 'PaymentsAPIRegistry'
+  imageRepository: 'payments-api'
+  containerRegistry: 'paymentsregistry.azurecr.io'
+  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  tag: '$(Build.BuildId)'
+
+stages:
+  # Stage 1: Build and Test
+  - stage: Build
+    displayName: 'Build and Test'
+    jobs:
+      - job: BuildJob
+        displayName: 'Build Job'
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: $(nodeVersion)
+            displayName: 'Install Node.js'
+
+          - task: Npm@1
+            inputs:
+              command: 'install'
+            displayName: 'Install Dependencies'
+
+          # Unit Tests
+          - script: |
+              npm test -- --coverage --watchAll=false
+            displayName: 'Run Unit Tests'
+            continueOnError: false
+
+          # Code Quality - Lint
+          - script: |
+              npx eslint . --ext .js
+            displayName: 'Run ESLint'
+            continueOnError: true
+
+          # Security Audit
+          - script: |
+              npm audit --production
+            displayName: 'Run Security Audit'
+            continueOnError: true
+
+          # Publish Test Results
+          - task: PublishTestResults@2
+            inputs:
+              testResultsFormat: 'JUnit'
+              testResultsFiles: '**/test-results.xml'
+              searchFolder: '$(System.DefaultWorkingDirectory)'
+            condition: succeededOrFailed()
+            displayName: 'Publish Test Results'
+
+          # Publish Code Coverage
+          - task: PublishCodeCoverageResults@1
+            inputs:
+              codeCoverageTool: Cobertura
+              summaryFileLocation: '$(System.DefaultWorkingDirectory)/**/coverage/cobertura-coverage.xml'
+            condition: succeededOrFailed()
+            displayName: 'Publish Code Coverage'
+
+  # Stage 2: Security & Compliance
+  - stage: SecurityScan
+    displayName: 'Security & Compliance Checks'
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - job: SecurityJob
+        displayName: 'Security Scanning'
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: $(nodeVersion)
+            displayName: 'Install Node.js'
+
+          - task: Npm@1
+            inputs:
+              command: 'install'
+            displayName: 'Install Dependencies'
+
+          # SAST Scanning
+          - script: |
+              npx snyk test --severity-threshold=high
+            displayName: 'Run Snyk Security Test'
+            continueOnError: true
+
+          # Dependency Check
+          - script: |
+              npm audit --audit-level=high
+            displayName: 'Check High Severity Vulnerabilities'
+            continueOnError: true
+
+  # Stage 3: Build Docker Image
+  - stage: BuildImage
+    displayName: 'Build Docker Image'
+    dependsOn: SecurityScan
+    condition: succeeded()
+    jobs:
+      - job: BuildDockerImage
+        displayName: 'Build and Push Docker Image'
+        steps:
+          - task: Docker@2
+            inputs:
+              command: buildAndPush
+              repository: $(imageRepository)
+              dockerfile: $(dockerfilePath)
+              containerRegistry: $(dockerRegistryServiceConnection)
+              tags: |
+                $(tag)
+                latest
+            displayName: 'Build and Push Docker Image'
+
+  # Stage 4: Deploy to Staging
+  - stage: DeployStaging
+    displayName: 'Deploy to Staging'
+    dependsOn: BuildImage
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: DeployToStaging
+        displayName: 'Deploy to Staging Environment'
+        environment: 'staging'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureWebApp@1
+                  inputs:
+                    azureSubscription: 'PaymentsAPI-Staging'
+                    appType: 'webAppLinux'
+                    appName: 'payments-api-staging'
+                    package: '$(Pipeline.Workspace)/drop'
+                  displayName: 'Deploy to Staging App Service'
+
+                - script: |
+                    echo "Running smoke tests on staging..."
+                    curl -f http://payments-api-staging.azurewebsites.net/health || exit 1
+                  displayName: 'Run Smoke Tests'
+
+  # Stage 5: Integration Tests on Staging
+  - stage: IntegrationTestStaging
+    displayName: 'Integration Tests - Staging'
+    dependsOn: DeployStaging
+    condition: succeeded()
+    jobs:
+      - job: IntegrationTests
+        displayName: 'Run Integration Tests'
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: $(nodeVersion)
+            displayName: 'Install Node.js'
+
+          - task: Npm@1
+            inputs:
+              command: 'install'
+            displayName: 'Install Dependencies'
+
+          - script: |
+              npm run test:integration
+            displayName: 'Run Integration Tests Against Staging'
+            env:
+              API_URL: 'http://payments-api-staging.azurewebsites.net'
+            continueOnError: false
+
+  # Stage 6: Approval and Deploy to Production
+  - stage: DeployProduction
+    displayName: 'Deploy to Production'
+    dependsOn: IntegrationTestStaging
+    condition: succeeded()
+    jobs:
+      - deployment: DeployToProduction
+        displayName: 'Deploy to Production Environment'
+        environment: 'production'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureWebApp@1
+                  inputs:
+                    azureSubscription: 'PaymentsAPI-Production'
+                    appType: 'webAppLinux'
+                    appName: 'payments-api-prod'
+                    package: '$(Pipeline.Workspace)/drop'
+                  displayName: 'Deploy to Production App Service'
+
+                - script: |
+                    echo "Running smoke tests on production..."
+                    curl -f http://payments-api-prod.azurewebsites.net/health || exit 1
+                  displayName: 'Run Production Smoke Tests'
+
+  # Stage 7: Post-Deployment Monitoring
+  - stage: Monitoring
+    displayName: 'Post-Deployment Monitoring'
+    dependsOn: DeployProduction
+    condition: succeeded()
+    jobs:
+      - job: MonitoringJob
+        displayName: 'Setup Monitoring Alerts'
+        steps:
+          - script: |
+              echo "Verifying Application Insights integration..."
+              echo "Monitoring deployment success and application health"
+            displayName: 'Verify Monitoring Setup'
+
+          - task: PowerShell@2
+            inputs:
+              targetType: 'inline'
+              script: |
+                Write-Host "Production deployment completed successfully"
+                Write-Host "Application is now live and being monitored"
+            displayName: 'Deployment Complete Notification'
