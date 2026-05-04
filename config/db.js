@@ -2,13 +2,18 @@ const mongoose = require("mongoose");
 
 const connectDB = async () => {
   try {
-    await mongoose.connect(
-      "mongodb+srv://Admin:Admin123!@darshan.slre7n1.mongodb.net/DarshanPayments?retryWrites=true&w=majority&appName=Darshan"
-    );
+    const uri = process.env.MONGO_URI;
 
-    console.log("MongoDB connected");
+    if (!uri) {
+      console.error("❌ MONGO_URI is missing in environment variables.");
+      process.exit(1);
+    }
+
+    await mongoose.connect(uri);
+
+    console.log("✅ MongoDB connected successfully");
   } catch (err) {
-    console.error("MongoDB connection error:", err.message);
+    console.error("❌ MongoDB connection error:", err.message);
     process.exit(1);
   }
 };
