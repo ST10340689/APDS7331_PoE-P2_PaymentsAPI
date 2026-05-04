@@ -10,6 +10,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.4.1",
     "lodash": "^4.18.1",
-    "mongoose": "^9.6.1"
+    "mongoose": "^9.6.1",
+    "selfsigned": "^5.5.0"
   }
 }

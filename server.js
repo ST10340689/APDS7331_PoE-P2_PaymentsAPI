@@ -8,7 +8,6 @@ const authRoutes = require("./routes/authRoutes");
 
 const app = express();
 
-
 // Secure headers
 app.use(helmet());
 
@@ -32,5 +31,5 @@ app.get("/", (req, res) => {
   res.send("API running");
 });
 
-// Start server
-app.listen(5000, () => console.log("Server running on port 5000"));
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`HTTP server running on port ${PORT}`));
